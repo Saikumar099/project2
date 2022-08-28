@@ -122,7 +122,10 @@
 					<target>${jdk.version}</target>
 				</configuration>
 			</plugin>
-
+                        <plugin>
+                              <artifactId>maven-compiler-plugin</artifactId>
+                              <version>3.7.0</version>
+                        </plugin>
 			<plugin>
 				<groupId>org.eclipse.jetty</groupId>
 				<artifactId>jetty-maven-plugin</artifactId>
