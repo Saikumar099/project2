@@ -1,75 +1,125 @@
-pipeline{
-
-agent any
-
-tools{
-maven 'maven3.8.2'
-
-}
-
-triggers{
-pollSCM('* * * * *')
-}
-
-options{
-timestamps()
-buildDiscarder(logRotator(artifactDaysToKeepStr: '', artifactNumToKeepStr: '5', daysToKeepStr: '', numToKeepStr: '5'))
-}
-
-stages{
-
-  stage('CheckOutCode'){
-    steps{
-    git branch: 'development', credentialsId: '957b543e-6f77-4cef-9aec-82e9b0230975', url: 'https://github.com/devopstrainingblr/maven-web-application-1.git'
-	
-	}
-  }
-  
-  stage('Build'){
-  steps{
-  sh  "mvn clean package"
-  }
-  }
-/*
- stage('ExecuteSonarQubeReport'){
-  steps{
-  sh  "mvn clean sonar:sonar"
-  }
-  }
-  
-  stage('UploadArtifactsIntoNexus'){
-  steps{
-  sh  "mvn clean deploy"
-  }
-  }
-  
-  stage('DeployAppIntoTomcat'){
-  steps{
-  sshagent(['bfe1b3c1-c29b-4a4d-b97a-c068b7748cd0']) {
-   sh "scp -o StrictHostKeyChecking=no target/maven-web-application.war ec2-user@35.154.190.162:/opt/apache-tomcat-9.0.50/webapps/"    
-  }
-  }
-  }
-  */
-}//Stages Closing
-
-post{
-
- success{
- emailext to: 'devopstrainingblr@gmail.com,mithuntechnologies@yahoo.com',
-          subject: "Pipeline Build is over .. Build # is ..${env.BUILD_NUMBER} and Build status is.. ${currentBuild.result}.",
-          body: "Pipeline Build is over .. Build # is ..${env.BUILD_NUMBER} and Build status is.. ${currentBuild.result}.",
-          replyTo: 'devopstrainingblr@gmail.com'
- }
- 
- failure{
- emailext to: 'devopstrainingblr@gmail.com,mithuntechnologies@yahoo.com',
-          subject: "Pipeline Build is over .. Build # is ..${env.BUILD_NUMBER} and Build status is.. ${currentBuild.result}.",
-          body: "Pipeline Build is over .. Build # is ..${env.BUILD_NUMBER} and Build status is.. ${currentBuild.result}.",
-          replyTo: 'devopstrainingblr@gmail.com'
- }
- 
-}
-
-
-}//Pipeline closing
+pipeline {
+    agent none
+      tools{
+       git 'Git'
+       maven 'maven3.8.6'
+      }
+      environment {     
+              def DOCKERHUB_CREDENTIALS=credentials('docker-hub') 
+              AWS_ACCOUNT_ID="948406862378"
+              AWS_DEFAULT_REGION="us-west-1"
+              IMAGE_REPO_NAME="ecr-demo"
+              IMAGE_TAG="latest"
+              REPOSITORY_URI = "948406862378.dkr.ecr.us-west-1.amazonaws.com/ecr-demo"
+        } 
+       stages{
+           stage('checkout code') {
+               agent {
+                    label 'master'
+               }
+               steps{
+               checkout([$class: 'GitSCM', branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/Saikumar099/practical.git']]])  
+               stash 'source'
+               }
+           }
+            stage('maven build') {
+               agent {
+                    label 'master'
+               }
+               steps{
+                     sh 'mvn package'
+                }
+           }
+           stage('sonarqube report') {
+               agent {
+                    label 'Docker Server'
+               }
+               environment{
+                   scannerHome = tool 'SonarQubeScanner'
+               }
+               steps{
+                    unstash 'source'
+                    withSonarQubeEnv('sonarqube-9.1') { 
+                        // sh "${"SonarQubeScanner"}/bin/sonar-scanner" 
+                         // sh '''$scannerHome/bin/sonar-scanner 
+                        //-Dsonar.host.url=http://54.193.191.66:9000 
+                        //-Dproject.settings=sonar-project.properties
+                        //-Dsonar.projectKey=project-demo 
+                        //-Dsonar.projectName=project-demo 
+                        //-Dsonar.java.binaries=target/classes'''
+                       sh 'mvn clean install sonar:sonar -Dsonar.host.url=http://54.193.191.66:9000 -Dproject.settings=sonar-project.properties -Dsonar.projectKey=project-demo -Dsonar.projectName=project-demo || true'
+                    }
+                }
+           }
+          stage('upload artifacts to nexus') {
+               agent {
+                    label 'Docker Server'
+                }
+              steps{
+                 nexusArtifactUploader artifacts: [[artifactId: 'java-web-app', 
+                                       classifier: '', 
+                                       file: 'target/java-web-app-1.0.war', 
+                                       type: 'war']], 
+                                       credentialsId: 'nexus', 
+                                       groupId: 'com.mt', 
+                                       nexusUrl: '54.193.191.66:8081/', 
+                                       nexusVersion: 'nexus3', 
+                                       protocol: 'http', 
+                                       repository: 'practical-1', 
+                                      version: '1.0'
+               } 
+           }
+           stage('creating tomcat image with webapp') {
+              agent {
+                    label 'Docker Server'
+              }
+               steps{
+                     sh 'docker build -t saikumar099/java-web-app:$BUILD_NUMBER .'   //for dockerhub
+		             sh 'docker build -t ecr-demo .'   
+              }
+           }
+         stage('pushing image to ECR') {
+             agent {
+                 label 'Docker Server'
+             }
+	        steps{
+		       script{
+		          sh 'aws ecr get-login-password --region us-west-1 | docker login --username AWS --password-stdin 948406862378.dkr.ecr.us-west-1.amazonaws.com'
+		        // sh “aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com”
+		        // sh 'docker build -t ecr-demo .'
+                 sh 'docker tag ecr-demo:latest 948406862378.dkr.ecr.us-west-1.amazonaws.com/ecr-demo:latest'
+                 sh 'docker tag ecr-demo:latest saikumar099/java-web-app:$BUILD_NUMBER'
+                //sh 'docker tag ${IMAGE_REPO_NAME}:${IMAGE_TAG} ${REPOSITORY_URI}:$IMAGE_TAG'
+			     sh 'docker push 948406862378.dkr.ecr.us-west-1.amazonaws.com/ecr-demo:latest'
+                // sh 'docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}:${IMAGE_TAG}''
+			    }
+		    }
+	     }  	  
+           /*stage('pushing image to dockerhub registry') {
+              agent {
+                    label 'Docker Server'
+              }
+                steps{  
+                    sh 'echo $DOCKERHUB_CREDENTIALS_PSW | sudo docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'                		
+	                 echo 'Login Completed'  
+                  // withDockerRegistry(credentialsId: 'docker-hub', url: 'https://hub.docker.com/repository/docker/saikumar099/java-web-app') {
+                     sh 'docker push saikumar099/java-web-app:$BUILD_NUMBER'
+                     echo 'Push Image Completed'
+                     //}  
+                  }
+             } */
+            stage('deploying image to k8s') {
+                agent {
+                    label 'Docker Server'
+                }
+                steps{
+                    sh '''
+                    aws eks --region us-west-1 update-kubeconfig --name eks-cluster
+                    kubectl apply -f javawebapp-deployment.yml -n sample-ns
+                    '''
+                }
+            }
+         }
+       
+       }
+     
