@@ -58,7 +58,7 @@ pipeline {
               steps{
                  nexusArtifactUploader artifacts: [[artifactId: 'maven-web-application', 
                                        classifier: '', 
-                                       file: 'target/java-web-app-1.0.war', 
+                                       file: 'target/*.war', 
                                        type: 'war']], 
                                        credentialsId: 'nexus', 
                                        groupId: 'com.mt', 
