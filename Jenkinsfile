@@ -115,7 +115,7 @@ pipeline {
                 steps{
                     sh '''
                     aws eks --region us-west-1 update-kubeconfig --name eks-cluster
-                    kubectl apply -f javawebapp-deployment.yml -n sample-ns
+                    kubectl apply -f mavenwebappdeployment.yml -n sample-ns
                     '''
                 }
             }
